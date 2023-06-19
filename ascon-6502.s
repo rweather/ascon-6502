@@ -21,17 +21,19 @@
 ; ASCON implementation for 6502 systems.  Include this file into your
 ; application to access the functions.
 ;
-; The code is not re-entrant.  Only a single hashing operation can be in
-; progress at any one time.  See the code comments below for how to use the
-; public API functions:
+; The code is not re-entrant.  Only a single encryption, decryption, or
+; hashing operation can be in progress at any one time.  See the code
+; comments below for how to use the subroutines in the public API:
 ;
-;       ascon_permute
-;       ascon_hash_init
-;       ascon_hash_update
-;       ascon_hash_finalize
-;       ascon_xof_init
-;       ascon_xof_absorb
-;       ascon_xof_squeeze
+                .global ascon_128_encrypt
+                .global ascon_128_decrypt
+                .global ascon_hash_init
+                .global ascon_hash_update
+                .global ascon_hash_finalize
+                .global ascon_xof_init
+                .global ascon_xof_absorb
+                .global ascon_xof_squeeze
+                .global ascon_permute
 ;
 ; Addresses of the words of the state, plus temporary scratch registers.
 ; These should be in zero page locations but can be elsewhere.  There will
@@ -54,15 +56,16 @@ ascon_t4        .equ    ascon_temp+4
 ;
 ; Parameters for higher-level functions.  Must be in the zero page.
 ;
-ascon_ptr       .equ    $08     ; 2 bytes for a pointer.
+ascon_ptr       .equ    $08     ; 2 bytes for a general data pointer.
+ascon_key       .equ    $0A     ; 2 bytes for a pointer to key and nonce data.
 
 ;
 ; State for higher-level functions.  Can be anywhere, but zero page recommended.
 ;
-ascon_count     .equ    $0A     ; Number of bytes in the current block.
-ascon_mode      .equ    $0B     ; Mode for the ongoing hash operation.
-ascon_posn      .equ    $0C     ; Position in the current buffer.
-ascon_limit     .equ    $0D     ; Limit of the current buffer.
+ascon_count     .equ    $0C     ; Number of bytes in the current block.
+ascon_mode      .equ    $0D     ; Mode for the ongoing hash operation.
+ascon_posn      .equ    $0E     ; Position in the current buffer.
+ascon_limit     .equ    $0F     ; Limit of the current buffer.
 
 ;
 ; Helper macros for rotating 64-bit words.
@@ -364,40 +367,40 @@ ascon_rc:
 ;
 ascon_copy_in:
     .macro ascon_copy_word_in
-    lda     (ascon_ptr),y
+    lda     (\2),y
     sta     \1
     iny
-    lda     (ascon_ptr),y
+    lda     (\2),y
     sta     \1+1
     iny
-    lda     (ascon_ptr),y
+    lda     (\2),y
     sta     \1+2
     iny
-    lda     (ascon_ptr),y
+    lda     (\2),y
     sta     \1+3
     iny
-    lda     (ascon_ptr),y
+    lda     (\2),y
     sta     \1+4
     iny
-    lda     (ascon_ptr),y
+    lda     (\2),y
     sta     \1+5
     iny
-    lda     (ascon_ptr),y
+    lda     (\2),y
     sta     \1+6
     iny
-    lda     (ascon_ptr),y
+    lda     (\2),y
     sta     \1+7
     .endm
     ldy     #0
-    ascon_copy_word_in ascon_x0
+    ascon_copy_word_in ascon_x0, ascon_ptr
     iny
-    ascon_copy_word_in ascon_x1
+    ascon_copy_word_in ascon_x1, ascon_ptr
     iny
-    ascon_copy_word_in ascon_x2
+    ascon_copy_word_in ascon_x2, ascon_ptr
     iny
-    ascon_copy_word_in ascon_x3
+    ascon_copy_word_in ascon_x3, ascon_ptr
     iny
-    ascon_copy_word_in ascon_x4
+    ascon_copy_word_in ascon_x4, ascon_ptr
     rts
 
 ;
@@ -443,6 +446,447 @@ ascon_copy_out:
     ascon_copy_word_out ascon_x3
     iny
     ascon_copy_word_out ascon_x4
+    rts
+
+;
+; Internal function to initialize ASCON-128 to encrypt or decrypt a packet
+; and to absorb the associated data.
+;
+ascon_128_init:
+    .macro ascon_xor_word_in
+    lda     (\2),y
+    eor     \1
+    sta     \1
+    iny
+    lda     (\2),y
+    eor     \1+1
+    sta     \1+1
+    iny
+    lda     (\2),y
+    eor     \1+2
+    sta     \1+2
+    iny
+    lda     (\2),y
+    eor     \1+3
+    sta     \1+3
+    iny
+    lda     (\2),y
+    eor     \1+4
+    sta     \1+4
+    iny
+    lda     (\2),y
+    eor     \1+5
+    sta     \1+5
+    iny
+    lda     (\2),y
+    eor     \1+6
+    sta     \1+6
+    iny
+    lda     (\2),y
+    eor     \1+7
+    sta     \1+7
+    .endm
+
+    sta     ascon_limit
+;
+; Populate the permutation state with the IV, key, and nonce.
+;
+    lda     #$80
+    sta     ascon_x0
+    lda     #$40
+    sta     ascon_x0+1
+    lda     #$0C
+    sta     ascon_x0+2
+    lda     #$06
+    sta     ascon_x0+3
+    ldy     #0
+    sty     ascon_x0+4
+    sty     ascon_x0+5
+    sty     ascon_x0+6
+    sty     ascon_x0+7
+;
+; Copy the key and nonce to x1..x4.
+;
+    ascon_copy_word_in ascon_x1, ascon_key
+    iny
+    ascon_copy_word_in ascon_x2, ascon_key
+    iny
+    ascon_copy_word_in ascon_x3, ascon_key
+    iny
+    ascon_copy_word_in ascon_x4, ascon_key
+;
+; Run the permutation for 12 rounds.
+;
+    ldy     #0
+    jsr     ascon_permute
+;
+; XOR the key with x3 and x4.
+;
+    ldy     #0
+    ascon_xor_word_in ascon_x3, ascon_key
+    iny
+    ascon_xor_word_in ascon_x4, ascon_key
+;
+; Absorb the associated data into the state if the length is non-zero.
+;
+    ldx     ascon_limit
+    beq     ascon_128_domain_sep
+    ldy     #32
+ascon_128_absorb_ad:
+    cpx     #8
+    blt     ascon_128_absorb_last
+    lda     (ascon_key),y
+    eor     ascon_x0
+    sta     ascon_x0
+    iny
+    dex
+    lda     (ascon_key),y
+    eor     ascon_x0+1
+    sta     ascon_x0+1
+    iny
+    dex
+    lda     (ascon_key),y
+    eor     ascon_x0+2
+    sta     ascon_x0+2
+    iny
+    dex
+    lda     (ascon_key),y
+    eor     ascon_x0+3
+    sta     ascon_x0+3
+    iny
+    dex
+    lda     (ascon_key),y
+    eor     ascon_x0+4
+    sta     ascon_x0+4
+    iny
+    dex
+    lda     (ascon_key),y
+    eor     ascon_x0+5
+    sta     ascon_x0+5
+    iny
+    dex
+    lda     (ascon_key),y
+    eor     ascon_x0+6
+    sta     ascon_x0+6
+    iny
+    dex
+    lda     (ascon_key),y
+    eor     ascon_x0+7
+    sta     ascon_x0+7
+    iny
+    dex
+    sty     ascon_count
+    stx     ascon_limit
+    ldy     #6
+    jsr     ascon_permute
+    ldy     ascon_count
+    ldx     ascon_limit
+    jmp     ascon_128_absorb_ad
+;
+; Pad and absorb the last associated data block.
+;
+ascon_128_absorb_last:
+    lda     ascon_x0,x
+    eor     #$80                ; Padding
+    sta     ascon_x0,x
+    cpx     #0
+    beq     ascon_128_absorb_last_done
+    ldx     #0
+ascon_128_absorb_last_loop:
+    lda     (ascon_key),y
+    eor     ascon_x0,x
+    sta     ascon_x0,x
+    iny
+    inx
+    dec     ascon_limit
+    bne     ascon_128_absorb_last_loop
+ascon_128_absorb_last_done:
+    ldy     #6
+    jsr     ascon_permute
+;
+; Flip the last bit of the state to perform domain separation
+; between the associated data and the plaintext.
+;
+ascon_128_domain_sep:
+    lda     ascon_x4+7
+    eor     #$01
+    sta     ascon_x4+7
+    rts
+
+;
+; Internal function that finalizes ASCON-128 encryption and calculates
+; the tag.  The tag ends up in ascon_x3 and ascon_x4 in the state.
+;
+ascon_128_finalize:
+;
+; XOR the key with ascon_x1 and ascon_x2.
+;
+    ldy     #0
+    ascon_xor_word_in ascon_x1, ascon_key
+    iny
+    ascon_xor_word_in ascon_x2, ascon_key
+;
+; Run the permutation for 12 rounds.
+;
+    ldy     #0
+    jsr     ascon_permute
+;
+; XOR the key with ascon_x3 and ascon_x4.
+;
+    ldy     #0
+    ascon_xor_word_in ascon_x3, ascon_key
+    iny
+    ascon_xor_word_in ascon_x4, ascon_key
+    rts
+
+;
+; ascon_128_encrypt - Encrypts plaintext with ASCON-128.
+;
+; On entry, "ascon_key" should point at a region of memory that is
+; formatted as follows:
+;
+;       Bytes 0-15      128-bit key
+;       Bytes 16-31     128-bit nonce
+;       Bytes 32-...    Associated data, if any
+;
+; On entry, "ascon_ptr" should point at a region of memory that
+; contains the plaintext plus 16 spare bytes on the end.  On exit,
+; the plaintext will be replaced with the ciphertext and the tag
+; will be written to the 16 extra bytes.
+;
+; On entry, A should be the length of the associated data (0-224) and
+; X should be the length of the plaintext (0-255).
+;
+; A, X, and Y are destroyed.  The C, V, Z, and N flags in the status
+; register will be destroyed.  The "ascon_ptr" variable is also destroyed.
+; The "ascon_key" variable will be preserved.
+;
+    .macro ascon_encrypt_byte
+    lda     (ascon_ptr),y
+    eor     ascon_x0+\1
+    sta     ascon_x0+\1
+    sta     (ascon_ptr),y
+    .endm
+
+ascon_128_encrypt:
+    stx     ascon_mode
+    jsr     ascon_128_init
+    lda     ascon_mode
+    jmp     ascon_128_encrypt_main_loop
+;
+; Encrypt as many full 8-byte blocks as possible.
+;
+ascon_128_encrypt_full_block:
+    pha
+    ldy     #0
+    ascon_encrypt_byte 0
+    iny
+    ascon_encrypt_byte 1
+    iny
+    ascon_encrypt_byte 2
+    iny
+    ascon_encrypt_byte 3
+    iny
+    ascon_encrypt_byte 4
+    iny
+    ascon_encrypt_byte 5
+    iny
+    ascon_encrypt_byte 6
+    iny
+    ascon_encrypt_byte 7
+    dey ; Y = 6
+    jsr     ascon_permute
+    lda     ascon_ptr
+    clc
+    adc     #8
+    sta     ascon_ptr
+    lda     ascon_ptr+1
+    adc     #0
+    sta     ascon_ptr+1
+    pla
+    sec
+    sbc     #8
+ascon_128_encrypt_main_loop:
+    cmp     #8
+    bge     ascon_128_encrypt_full_block
+;
+; Encrypt and pad the left-over block.
+;
+    ldy     #0
+    tax
+    beq     ascon_128_encrypt_pad
+ascon_128_encrypt_last_block:
+    lda     (ascon_ptr),y
+    eor     ascon_x0,y
+    sta     ascon_x0,y
+    sta     (ascon_ptr),y
+    iny
+    dex
+    bne     ascon_128_encrypt_last_block
+ascon_128_encrypt_pad:
+    lda     ascon_x0,y
+    eor     #$80
+    sta     ascon_x0,y
+    tya
+    clc
+    adc     ascon_ptr
+    sta     ascon_ptr
+    lda     ascon_ptr+1
+    adc     #0
+    sta     ascon_ptr+1
+;
+; Finalise the encryption state and compute the tag.
+;
+    jsr     ascon_128_finalize
+;
+; Copy the tag out of ascon_x3 and ascon_x4 into the return buffer.
+;
+    ldy     #0
+    ascon_copy_word_out ascon_x3
+    iny
+    ascon_copy_word_out ascon_x4
+    rts
+
+;
+; ascon_128_decrypt - Decrypts ciphertext with ASCON-128.
+;
+; On entry, "ascon_key" should point at a region of memory that is
+; formatted as follows:
+;
+;       Bytes 0-15      128-bit key
+;       Bytes 16-31     128-bit nonce
+;       Bytes 32-...    Associated data, if any
+;
+; On entry, "ascon_ptr" should point at a region of memory that
+; contains the ciphertext plus the 16 tag bytes on the end.  On exit,
+; the ciphertext will be replaced with the plaintext.  The tag will
+; be left unmodified.
+;
+; On entry, A should be the length of the associated data (0-224) and
+; X should be the length of the ciphertext excluding the 16 byte tag (0-255).
+;
+; On exit, Z will be set in the status register if decryption was
+; successful.  Z will be clear if there was an error decrypting the
+; ciphertext and checking the tag.
+;
+; A, X, and Y are destroyed.  The V, C, and N flags in the status
+; register will be destroyed.  The Z flag in the status register
+; is set as described above.  The "ascon_ptr" variable is also
+; destroyed.  The "ascon_key" variable will be preserved.
+;
+    .macro ascon_decrypt_byte
+    lda     (ascon_ptr),y       ; Read the ciphertext byte.
+    pha                         ; Save it.
+    eor     ascon_x0+\1         ; Decrypt it and write the plaintext byte.
+    sta     (ascon_ptr),y
+    pla                         ; Restore the ciphertext byte.
+    sta     ascon_x0+\1         ; Write it to the state for authentication.
+    .endm
+
+ascon_128_decrypt:
+    stx     ascon_mode
+    jsr     ascon_128_init
+    lda     ascon_mode
+    jmp     ascon_128_decrypt_main_loop
+;
+; Decrypt as many full 8-byte blocks as possible.
+;
+ascon_128_decrypt_full_block:
+    pha
+    ldy     #0
+    ascon_decrypt_byte 0
+    iny
+    ascon_decrypt_byte 1
+    iny
+    ascon_decrypt_byte 2
+    iny
+    ascon_decrypt_byte 3
+    iny
+    ascon_decrypt_byte 4
+    iny
+    ascon_decrypt_byte 5
+    iny
+    ascon_decrypt_byte 6
+    iny
+    ascon_decrypt_byte 7
+    dey ; Y = 6
+    jsr     ascon_permute
+    lda     ascon_ptr
+    clc
+    adc     #8
+    sta     ascon_ptr
+    lda     ascon_ptr+1
+    adc     #0
+    sta     ascon_ptr+1
+    pla
+    sec
+    sbc     #8
+ascon_128_decrypt_main_loop:
+    cmp     #8
+    bge     ascon_128_decrypt_full_block
+;
+; Decrypt and pad the left-over block.
+;
+    ldy     #0
+    tax
+    beq     ascon_128_decrypt_pad
+ascon_128_decrypt_last_block:
+    lda     (ascon_ptr),y
+    pha
+    eor     ascon_x0,y
+    sta     (ascon_ptr),y
+    pla
+    sta     ascon_x0,y
+    iny
+    dex
+    bne     ascon_128_decrypt_last_block
+ascon_128_decrypt_pad:
+    lda     ascon_x0,y
+    eor     #$80
+    sta     ascon_x0,y
+    tya
+    clc
+    adc     ascon_ptr
+    sta     ascon_ptr
+    lda     ascon_ptr+1
+    adc     #0
+    sta     ascon_ptr+1
+;
+; Finalise the decryption state and compute the tag.
+;
+    jsr     ascon_128_finalize
+;
+; Compare the tag with ascon_x3 and ascon_x4 in the return buffer.
+;
+    .macro ascon_compare_byte
+    iny
+    lda     (ascon_ptr),y
+    eor     \1
+    ora     ascon_count
+    sta     ascon_count
+    .endm
+    ldy     #0
+    lda     (ascon_ptr),y
+    eor     ascon_x3
+    sta     ascon_count
+    ascon_compare_byte ascon_x3+1
+    ascon_compare_byte ascon_x3+2
+    ascon_compare_byte ascon_x3+3
+    ascon_compare_byte ascon_x3+4
+    ascon_compare_byte ascon_x3+5
+    ascon_compare_byte ascon_x3+6
+    ascon_compare_byte ascon_x3+7
+    ascon_compare_byte ascon_x4+0
+    ascon_compare_byte ascon_x4+1
+    ascon_compare_byte ascon_x4+2
+    ascon_compare_byte ascon_x4+3
+    ascon_compare_byte ascon_x4+4
+    ascon_compare_byte ascon_x4+5
+    ascon_compare_byte ascon_x4+6
+    iny
+    lda     (ascon_ptr),y
+    eor     ascon_x4+7
+    ora     ascon_count
     rts
 
 ;

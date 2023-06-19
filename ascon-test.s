@@ -40,6 +40,8 @@ main:
     jsr     ascon_test_permutation
     jsr     ascon_test_hash
     jsr     ascon_test_xof
+    jsr     ascon_test_encryption
+    jsr     ascon_test_decryption
     rts
 
 ;
@@ -102,9 +104,9 @@ ascon_test_permutation:
     ldy     #4
     jsr     ascon_permute
 ;
-    lda     #<(outbuf+64)
+    lda     #<(outbuf+40)
     sta     ascon_ptr
-    lda     #>(outbuf+64)
+    lda     #>(outbuf+40)
     sta     ascon_ptr+1
     jsr     ascon_copy_out
 ;
@@ -155,9 +157,9 @@ ascon_test_hash:
     lda     #(ascon_test_bytes_to_hash-13)
     jsr     ascon_hash_update
 ;
-    lda     #<(outbuf+128)
+    lda     #<(outbuf+80)
     sta     ascon_ptr
-    lda     #>(outbuf+128)
+    lda     #>(outbuf+80)
     sta     ascon_ptr+1
     jsr     ascon_hash_finalize
 ;
@@ -231,6 +233,180 @@ ascon_test_xof:
     rts
 
 ;
+; Test ASCON-128 encryption.
+;
+ascon_test_encryption:
+    ldx     #msg_encrypt_128-messages
+    jsr     print_string
+;
+    ldx     #msg_key-messages
+    jsr     print_string
+    lda     #<ascon_128_key_input
+    sta     ascon_ptr
+    lda     #>ascon_128_key_input
+    sta     ascon_ptr+1
+    ldx     #16
+    jsr     print_hex
+;
+    ldx     #msg_nonce-messages
+    jsr     print_string
+    lda     #<ascon_128_nonce_input
+    sta     ascon_ptr
+    lda     #>ascon_128_nonce_input
+    sta     ascon_ptr+1
+    ldx     #16
+    jsr     print_hex
+;
+    ldx     #msg_ad-messages
+    jsr     print_string
+    lda     #<ascon_128_ad_input
+    sta     ascon_ptr
+    lda     #>ascon_128_ad_input
+    sta     ascon_ptr+1
+    ldx     #ascon_128_ad_input_end-ascon_128_ad_input
+    jsr     print_hex
+;
+    ldx     #msg_pt-messages
+    jsr     print_string
+    lda     #<ascon_128_plaintext_input
+    sta     ascon_ptr
+    lda     #>ascon_128_plaintext_input
+    sta     ascon_ptr+1
+    ldx     #ascon_128_plaintext_input_end-ascon_128_plaintext_input
+    jsr     print_hex
+;
+    lda     #<ascon_128_plaintext_input
+    sta     ascon_ptr
+    lda     #>ascon_128_plaintext_input
+    sta     ascon_ptr+1
+    ldy     #0
+    ldx     #ascon_128_plaintext_input_end-ascon_128_plaintext_input
+    jsr     ascon_test_copy
+;
+    lda     #<ascon_128_key_input
+    sta     ascon_key
+    lda     #>ascon_128_key_input
+    sta     ascon_key+1
+    lda     #<outbuf
+    sta     ascon_ptr
+    lda     #>outbuf
+    sta     ascon_ptr+1
+    lda     #ascon_128_ad_input_end-ascon_128_ad_input
+    ldx     #ascon_128_plaintext_input_end-ascon_128_plaintext_input
+    jsr     ascon_128_encrypt
+;
+    ldx     #msg_output-messages
+    jsr     print_string
+    lda     #<outbuf
+    sta     ascon_ptr
+    lda     #>outbuf
+    sta     ascon_ptr+1
+    ldx     #ascon_128_ciphertext_output_end-ascon_128_ciphertext_output
+    jsr     print_hex
+;
+    ldx     #msg_expected-messages
+    jsr     print_string
+    lda     #<ascon_128_ciphertext_output
+    sta     ascon_ptr
+    lda     #>ascon_128_ciphertext_output
+    sta     ascon_ptr+1
+    ldx     #ascon_128_ciphertext_output_end-ascon_128_ciphertext_output
+    jsr     print_hex
+;
+    rts
+
+;
+; Test ASCON-128 decryption.
+;
+ascon_test_decryption:
+    ldx     #msg_decrypt_128-messages
+    jsr     print_string
+;
+    ldx     #msg_key-messages
+    jsr     print_string
+    lda     #<ascon_128_key_input
+    sta     ascon_ptr
+    lda     #>ascon_128_key_input
+    sta     ascon_ptr+1
+    ldx     #16
+    jsr     print_hex
+;
+    ldx     #msg_nonce-messages
+    jsr     print_string
+    lda     #<ascon_128_nonce_input
+    sta     ascon_ptr
+    lda     #>ascon_128_nonce_input
+    sta     ascon_ptr+1
+    ldx     #16
+    jsr     print_hex
+;
+    ldx     #msg_ad-messages
+    jsr     print_string
+    lda     #<ascon_128_ad_input
+    sta     ascon_ptr
+    lda     #>ascon_128_ad_input
+    sta     ascon_ptr+1
+    ldx     #ascon_128_ad_input_end-ascon_128_ad_input
+    jsr     print_hex
+;
+    ldx     #msg_ct-messages
+    jsr     print_string
+    lda     #<ascon_128_ciphertext_output
+    sta     ascon_ptr
+    lda     #>ascon_128_ciphertext_output
+    sta     ascon_ptr+1
+    ldx     #ascon_128_ciphertext_output_end-ascon_128_ciphertext_output
+    jsr     print_hex
+;
+    lda     #<ascon_128_ciphertext_output
+    sta     ascon_ptr
+    lda     #>ascon_128_ciphertext_output
+    sta     ascon_ptr+1
+    ldy     #0
+    ldx     #ascon_128_ciphertext_output_end-ascon_128_ciphertext_output
+    jsr     ascon_test_copy
+;
+    lda     #<ascon_128_key_input
+    sta     ascon_key
+    lda     #>ascon_128_key_input
+    sta     ascon_key+1
+    lda     #<outbuf
+    sta     ascon_ptr
+    lda     #>outbuf
+    sta     ascon_ptr+1
+    lda     #ascon_128_ad_input_end-ascon_128_ad_input
+    ldx     #ascon_128_plaintext_input_end-ascon_128_plaintext_input
+    jsr     ascon_128_decrypt
+;
+    ldx     #msg_output-messages
+    jsr     print_string
+    lda     #<outbuf
+    sta     ascon_ptr
+    lda     #>outbuf
+    sta     ascon_ptr+1
+    ldx     #ascon_128_plaintext_input_end-ascon_128_plaintext_input
+    jsr     print_hex
+;
+    ldx     #msg_expected-messages
+    jsr     print_string
+    lda     #<ascon_128_plaintext_input
+    sta     ascon_ptr
+    lda     #>ascon_128_plaintext_input
+    sta     ascon_ptr+1
+    ldx     #ascon_128_plaintext_input_end-ascon_128_plaintext_input
+    jsr     print_hex
+;
+    rts
+
+ascon_test_copy:
+    lda     (ascon_ptr),y
+    sta     outbuf,y
+    iny
+    dex
+    bne     ascon_test_copy
+    rts
+
+;
 ; Data for the various test cases.
 ;
 ascon_hash_input:
@@ -262,6 +438,28 @@ ascon_xof_output:
     .db     $3E, $57, $6C, $2A, $98, $21, $85, $D3
     .db     $A0, $21, $1D, $51, $98, $48, $A9, $38
     .db     $E8, $35, $2A, $C9, $74, $98, $58, $1D
+ascon_128_key_input:
+    .db     $00, $01, $02, $03, $04, $05, $06, $07
+    .db     $08, $09, $0a, $0b, $0c, $0d, $0e, $0f
+ascon_128_nonce_input:  ; Must come after the key.
+    .db     $00, $01, $02, $03, $04, $05, $06, $07
+    .db     $08, $09, $0a, $0b, $0c, $0d, $0e, $0f
+ascon_128_ad_input:     ; Must come after the nonce.
+    .db     $00, $01, $02, $03, $04, $05, $06, $07
+    .db     $08, $09, $0a
+ascon_128_ad_input_end:
+ascon_128_plaintext_input:
+    .db     $00, $01, $02, $03, $04, $05, $06, $07
+    .db     $08, $09, $0a, $0b, $0c, $0d, $0e, $0f
+    .db     $10, $11, $12, $13, $14, $15, $16
+ascon_128_plaintext_input_end:
+ascon_128_ciphertext_output: ; Must come after the plaintext.
+    .db     $76, $80, $7B, $64, $48, $89, $6C, $E5
+    .db     $88, $42, $CB, $4A, $ED, $6C, $41, $04
+    .db     $1D, $6D, $EC, $3B, $3A, $0D, $D6, $99
+    .db     $01, $F9, $88, $A3, $37, $A7, $23, $9C
+    .db     $41, $1A, $18, $31, $36, $22, $FC
+ascon_128_ciphertext_output_end:
 
 ;
 ; Print a string.  Offset of the string in "messages" is in X.
@@ -349,6 +547,14 @@ msg_xof:
     .db     $0d
     .asc    "ASCON-XOF:"
     .db     $0d, 0
+msg_encrypt_128:
+    .db     $0d
+    .asc    "ASCON-128 encryption:"
+    .db     $0d, 0
+msg_decrypt_128:
+    .db     $0d
+    .asc    "ASCON-128 decryption:"
+    .db     $0d, 0
 msg_input:
     .asc    "input    ="
     .db     0
@@ -357,6 +563,21 @@ msg_output:
     .db     0
 msg_expected:
     .asc    "expected ="
+    .db     0
+msg_key:
+    .asc    "key      ="
+    .db     0
+msg_nonce:
+    .asc    "nonce    ="
+    .db     0
+msg_ad:
+    .asc    "ad       ="
+    .db     0
+msg_pt:
+    .asc    "pt       ="
+    .db     0
+msg_ct:
+    .asc    "ct       ="
     .db     0
 
 ;
