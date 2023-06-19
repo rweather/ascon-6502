@@ -34,6 +34,15 @@ HIGH_ASCII  .equ    $80         ; $80 to convert to high ASCII on output.
 outbuf      .equ    $300
 
 ;
+; Main entry point to the test harness.
+;
+main:
+    jsr     ascon_test_permutation
+    jsr     ascon_test_hash
+    jsr     ascon_test_xof
+    rts
+
+;
 ; Test the permutation.
 ;
 ascon_test_permutation:
@@ -114,9 +123,117 @@ ascon_test_permutation:
     jsr     print_hex
     rts
 
+ascon_test_bytes_to_hash .equ 31
+
 ;
-; Data for the permutation test.
+; Test ASCON-HASH.
 ;
+ascon_test_hash:
+    ldx     #msg_hash-messages
+    jsr     print_string
+;
+    jsr     ascon_hash_init
+;
+    lda     #<ascon_hash_input
+    sta     ascon_ptr
+    lda     #>ascon_hash_input
+    sta     ascon_ptr+1
+;
+    ldx     #msg_input-messages
+    jsr     print_string
+    ldx     #ascon_test_bytes_to_hash
+    jsr     print_hex
+;
+; Break the input up into two blocks to test incremental updates.
+;
+    lda     #13
+    jsr     ascon_hash_update
+    lda     #<(ascon_hash_input+13)
+    sta     ascon_ptr
+    lda     #>(ascon_hash_input+13)
+    sta     ascon_ptr+1
+    lda     #(ascon_test_bytes_to_hash-13)
+    jsr     ascon_hash_update
+;
+    lda     #<(outbuf+128)
+    sta     ascon_ptr
+    lda     #>(outbuf+128)
+    sta     ascon_ptr+1
+    jsr     ascon_hash_finalize
+;
+    ldx     #msg_output-messages
+    jsr     print_string
+    ldx     #32
+    jsr     print_hex
+;
+    lda     #<ascon_hash_output
+    sta     ascon_ptr
+    lda     #>ascon_hash_output
+    sta     ascon_ptr+1
+    ldx     #msg_expected-messages
+    jsr     print_string
+    ldx     #32
+    jsr     print_hex
+;
+    rts
+
+;
+; Test ASCON-XOF.
+;
+ascon_test_xof:
+    ldx     #msg_xof-messages
+    jsr     print_string
+;
+    jsr     ascon_xof_init
+;
+    lda     #<ascon_hash_input
+    sta     ascon_ptr
+    lda     #>ascon_hash_input
+    sta     ascon_ptr+1
+;
+    ldx     #msg_input-messages
+    jsr     print_string
+    ldx     #ascon_test_bytes_to_hash
+    jsr     print_hex
+;
+; Break the input up into two blocks to test incremental updates.
+;
+    lda     #13
+    jsr     ascon_xof_absorb
+    lda     #<(ascon_hash_input+13)
+    sta     ascon_ptr
+    lda     #>(ascon_hash_input+13)
+    sta     ascon_ptr+1
+    lda     #(ascon_test_bytes_to_hash-13)
+    jsr     ascon_xof_absorb
+;
+    lda     #<(outbuf+128)
+    sta     ascon_ptr
+    lda     #>(outbuf+128)
+    sta     ascon_ptr+1
+    lda     #32
+    jsr     ascon_xof_squeeze
+;
+    ldx     #msg_output-messages
+    jsr     print_string
+    ldx     #32
+    jsr     print_hex
+;
+    lda     #<ascon_xof_output
+    sta     ascon_ptr
+    lda     #>ascon_xof_output
+    sta     ascon_ptr+1
+    ldx     #msg_expected-messages
+    jsr     print_string
+    ldx     #32
+    jsr     print_hex
+;
+    rts
+
+;
+; Data for the various test cases.
+;
+ascon_hash_input:
 ascon_permutation_input:
     .db     $00, $01, $02, $03, $04, $05, $06, $07
     .db     $08, $09, $0a, $0b, $0c, $0d, $0e, $0f
@@ -135,6 +252,16 @@ ascon_permutation_output_8:
     .db     $dd, $0d, $88, $e7, $dc, $b5, $ec, $d0
     .db     $89, $2a, $02, $15, $1f, $95, $94, $6e
     .db     $3a, $69, $cb, $3c, $f9, $82, $f6, $f7
+ascon_hash_output:
+    .db     $2C, $B1, $46, $AE, $BB, $B6, $58, $5B
+    .db     $11, $BF, $1A, $37, $1B, $AA, $6E, $3E
+    .db     $55, $10, $8C, $69, $B0, $83, $4F, $26
+    .db     $9F, $66, $2C, $59, $BC, $AA, $57, $00
+ascon_xof_output:
+    .db     $9E, $52, $42, $26, $D3, $8B, $DC, $DB
+    .db     $3E, $57, $6C, $2A, $98, $21, $85, $D3
+    .db     $A0, $21, $1D, $51, $98, $48, $A9, $38
+    .db     $E8, $35, $2A, $C9, $74, $98, $58, $1D
 
 ;
 ; Print a string.  Offset of the string in "messages" is in X.
@@ -165,7 +292,8 @@ print_done:
     rts
 
 ;
-; Print a buffer of hexadecimal bytes.  Pointer is in "ascon_ptr".
+; Print a buffer of hexadecimal bytes.  Pointer is in "ascon_ptr"
+; and the number of bytes to print is in X.
 ;
 print_hex:
     ldy     #0
@@ -212,6 +340,14 @@ msg_12_rounds:
 msg_8_rounds:
     .db     $0d
     .asc    "8 permutation rounds:"
+    .db     $0d, 0
+msg_hash:
+    .db     $0d
+    .asc    "ASCON-HASH:"
+    .db     $0d, 0
+msg_xof:
+    .db     $0d
+    .asc    "ASCON-XOF:"
     .db     $0d, 0
 msg_input:
     .asc    "input    ="

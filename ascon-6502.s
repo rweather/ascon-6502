@@ -18,6 +18,20 @@
 ; FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 ; DEALINGS IN THE SOFTWARE.
 
+; ASCON implementation for 6502 systems.  Include this file into your
+; application to access the functions.
+;
+; The code is not re-entrant.  Only a single hashing operation can be in
+; progress at any one time.  See the code comments below for how to use the
+; public API functions:
+;
+;       ascon_permute
+;       ascon_hash_init
+;       ascon_hash_update
+;       ascon_hash_finalize
+;       ascon_xof_init
+;       ascon_xof_absorb
+;       ascon_xof_squeeze
 ;
 ; Addresses of the words of the state, plus temporary scratch registers.
 ; These should be in zero page locations but can be elsewhere.  There will
@@ -38,9 +52,17 @@ ascon_t3        .equ    ascon_temp+3
 ascon_t4        .equ    ascon_temp+4
 
 ;
-; Parameters to higher-level functions.  Must be in the zero page.
+; Parameters for higher-level functions.  Must be in the zero page.
 ;
 ascon_ptr       .equ    $08     ; 2 bytes for a pointer.
+
+;
+; State for higher-level functions.  Can be anywhere, but zero page recommended.
+;
+ascon_count     .equ    $0A     ; Number of bytes in the current block.
+ascon_mode      .equ    $0B     ; Mode for the ongoing hash operation.
+ascon_posn      .equ    $0C     ; Position in the current buffer.
+ascon_limit     .equ    $0D     ; Limit of the current buffer.
 
 ;
 ; Helper macros for rotating 64-bit words.
@@ -422,3 +444,243 @@ ascon_copy_out:
     iny
     ascon_copy_word_out ascon_x4
     rts
+
+;
+; ascon_hash_init - Initialize ASCON-HASH.
+;
+; A and Y are destroyed.  X is preserved.  N and Z in the status register
+; are destroyed.  "ascon_ptr" is also destroyed.
+;
+ascon_hash_init:
+    ; Set the ASCON permutation state to the ASCON-HASH IV.
+    lda     #<ascon_hash_iv
+    ldy     #>ascon_hash_iv
+ascon_hash_init_2:
+    sta     ascon_ptr
+    sty     ascon_ptr+1
+    jsr     ascon_copy_in
+    lda     #0
+    sta     ascon_count
+    sta     ascon_mode
+    rts
+
+;
+; ascon_xof_init - Initialize ASCON-XOF.
+;
+; A and Y are destroyed.  X is preserved.  N and Z in the status register
+; are destroyed.  "ascon_ptr" is also destroyed.
+;
+ascon_xof_init:
+    ; Set the ASCON permutation state to the ASCON-XOF IV.
+    lda     #<ascon_xof_iv
+    ldy     #>ascon_xof_iv
+    jmp     ascon_hash_init_2
+
+;
+; ascon_hash_update - Updates an ASCON-HASH state with more data.
+; ascon_xof_absorb  - Absorbs more data into an ASCON-XOF state.
+;
+; On entry, "ascon_ptr" in the zero page points at the data to be absorbed.
+; A is set to the number of bytes to be absorbed from "ascon_ptr".
+;
+; A, X, and Y will be destroyed.  The C, V, Z, and N flags in the status
+; register will also be destroyed.
+;
+ascon_hash_update:
+ascon_xof_absorb:
+    ora     #0
+    beq     ascon_xof_absorb_done   ; Nothing to do if A = 0.
+;
+    sta     ascon_limit
+    ldy     #0
+    sty     ascon_posn
+    lda     ascon_mode
+    beq     ascon_xof_absorb_start
+;
+; We were squeezing but now we need to switch back to absorbing.
+; Re-initialize variables and run the permutation to mix the state.
+;
+    sty     ascon_mode
+    sty     ascon_count
+    jsr     ascon_permute
+;
+ascon_xof_absorb_start:
+    ldx     ascon_count
+    beq     ascon_xof_absorb_loop
+    ldy     ascon_posn
+ascon_xof_absorb_first:
+    cpy     ascon_limit
+    bge     ascon_xof_absorb_short
+    lda     (ascon_ptr),y
+    eor     ascon_x0,x
+    sta     ascon_x0,x
+    iny
+    inx
+    cpx     #8
+    blt     ascon_xof_absorb_first
+;
+; Short first block is now full.
+;
+    sty     ascon_posn
+    ldy     #0
+    sty     ascon_count
+    jsr     ascon_permute
+;
+; Main loop for absorbing blocks.
+;
+ascon_xof_absorb_loop:
+    lda     ascon_limit
+    sec
+    sbc     ascon_posn
+    beq     ascon_xof_absorb_done
+    cmp     #8
+    blt     ascon_xof_absorb_last
+;
+; Absorb a full rate block and run the permutation.
+;
+    ldy     ascon_posn
+    ldx     #0
+ascon_xof_absorb_full:
+    lda     (ascon_ptr),y
+    eor     ascon_x0,x
+    sta     ascon_x0,x
+    iny
+    inx
+    cpx     #8
+    blt     ascon_xof_absorb_full
+    sty     ascon_posn
+    ldy     #0
+    jsr     ascon_permute
+    jmp     ascon_xof_absorb_loop
+;
+; Absorb the last partial block.
+;
+ascon_xof_absorb_last:
+    ldy     ascon_posn
+    ldx     #0
+ascon_xof_absorb_partial:
+    lda     (ascon_ptr),y
+    eor     ascon_x0,x
+    sta     ascon_x0,x
+    iny
+    inx
+    cpy     ascon_limit
+    blt     ascon_xof_absorb_partial
+ascon_xof_absorb_short:
+    stx     ascon_count
+ascon_xof_absorb_done:
+    rts
+
+;
+; ascon_hash_finalize - Finalizes an ASCON-HASH state and gets the digest.
+; ascon_xof_squeeze   - Squeezes data out of an ASCON-XOF state.
+;
+; On entry, "ascon_ptr" in the zero page points at the buffer to receive
+; the squeezed data.  A is set to the number of bytes to be squeezed.
+; In the case of "ascon_hash_finalize", A is always overridden with 32.
+;
+; A, X, and Y will be destroyed.  The C, V, Z, and N flags in the status
+; register will also be destroyed.
+;
+ascon_hash_finalize:
+    lda     #32         ; Always squeeze out 32 bytes for ASCON-HASH.
+ascon_xof_squeeze:
+    ora     #0
+    beq     ascon_xof_squeeze_done   ; Nothing to do if A = 0.
+;
+    sta     ascon_limit
+    ldy     #0
+    sty     ascon_posn
+    lda     ascon_mode
+    bne     ascon_xof_squeeze_start
+;
+; We were absorbing but now we need to switch to squeezing.
+; Pad the final block and re-initialize the control variables.
+;
+    inc     ascon_mode      ; Change ascon_mode from 0 to 1.
+    ldx     ascon_count     ; Get the size of the final block
+    sty     ascon_count     ; and then zero the counter.
+    lda     ascon_x0,x
+    eor     #$80            ; Padding.
+    sta     ascon_x0,x
+;
+ascon_xof_squeeze_start:
+    ldx     ascon_count
+    beq     ascon_xof_squeeze_loop
+    ldy     ascon_posn
+ascon_xof_squeeze_first:
+    cpy     ascon_limit
+    bge     ascon_xof_squeeze_short
+    lda     ascon_x0,x
+    sta     (ascon_ptr),y
+    iny
+    inx
+    cpx     #8
+    blt     ascon_xof_squeeze_first
+;
+; Short first block is now empty.
+;
+    sty     ascon_posn
+    ldy     #0
+    sty     ascon_count
+;
+; Main loop for squeezing blocks.
+;
+ascon_xof_squeeze_loop:
+    lda     ascon_limit
+    sec
+    sbc     ascon_posn
+    beq     ascon_xof_squeeze_done
+    cmp     #8
+    blt     ascon_xof_squeeze_last
+;
+; Run the permutation and squeeze out a full rate block.
+;
+    ldy     #0
+    jsr     ascon_permute
+    ldy     ascon_posn
+    ldx     #0
+ascon_xof_squeeze_full:
+    lda     ascon_x0,x
+    sta     (ascon_ptr),y
+    iny
+    inx
+    cpx     #8
+    blt     ascon_xof_squeeze_full
+    sty     ascon_posn
+    jmp     ascon_xof_squeeze_loop
+;
+; Squeeze the last partial block.
+;
+ascon_xof_squeeze_last:
+    ldy     #0
+    jsr     ascon_permute
+    ldy     ascon_posn
+    ldx     #0
+ascon_xof_squeeze_partial:
+    lda     ascon_x0,x
+    sta     (ascon_ptr),y
+    iny
+    inx
+    cpy     ascon_limit
+    blt     ascon_xof_squeeze_partial
+ascon_xof_squeeze_short:
+    stx     ascon_count
+ascon_xof_squeeze_done:
+    rts
+
+;
+; Initialization vectors for the higher-level ASCON algorithms.
+;
+ascon_hash_iv:
+    .db     $ee, $93, $98, $aa, $db, $67, $f0, $3d
+    .db     $8b, $b2, $18, $31, $c6, $0f, $10, $02
+    .db     $b4, $8a, $92, $db, $98, $d5, $da, $62
+    .db     $43, $18, $99, $21, $b8, $f8, $e3, $e8
+    .db     $34, $8f, $a5, $c9, $d5, $25, $e1, $40
+ascon_xof_iv:
+    .db     $b5, $7e, $27, $3b, $81, $4c, $d4, $16
+    .db     $2b, $51, $04, $25, $62, $ae, $24, $20
+    .db     $66, $a3, $a7, $76, $8d, $df, $22, $18
+    .db     $5a, $ad, $0a, $7a, $81, $53, $65, $0c
+    .db     $4f, $3e, $0e, $32, $53, $94, $93, $b6
