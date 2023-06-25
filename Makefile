@@ -1,13 +1,17 @@
 
 .PHONY: all clean
 
-VASM = vasm6502_oldstyle
-VASM_OPTS = -quiet -dotdir -Fbin -c02
+VASM = vasm6502_oldstyle -quiet -dotdir -c02
+VASM_BIN_OPTS = -Fbin
+VASM_O65_OPTS = -Fo65exe -DO65 -text=0x4000
 
-all: ascon-test.bin
+all: ascon-test.bin ascon-test.o65
 
 ascon-test.bin: ascon-test.s ascon-6502.s
-	$(VASM) $(VASM_OPTS) -L ascon-test.lst -o ascon-test.bin ascon-test.s
+	$(VASM) $(VASM_BIN_OPTS) -L ascon-test.lst -o ascon-test.bin ascon-test.s
+
+ascon-test.o65: ascon-test.s ascon-6502.s
+	$(VASM) $(VASM_O65_OPTS) -o ascon-test.o65 ascon-test.s
 
 clean:
-	rm -f *.bin *.lst
+	rm -f *.bin *.lst *.o65

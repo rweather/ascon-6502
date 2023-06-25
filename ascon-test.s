@@ -19,11 +19,17 @@
 ; DEALINGS IN THE SOFTWARE.
 
 ;
+; Set the origin unless we are outputting to the relocatable ".o65" format.
+;
+        .ifndef O65
+            .org    $4000
+        .endif
+
+;
 ; Subroutines in ROM for printing characters.  The defaults are entry
 ; points for Apple II and compatible ROM's.  Modify as necessary
 ; for other platforms.
 ;
-            .org    $4000
 CROUT       .equ    $fd8e       ; Output a CRLF, or 0 to use COUT.
 COUT        .equ    $fded       ; Output a single character in A.
 HIGH_ASCII  .equ    $80         ; $80 to convert to high ASCII on output.
