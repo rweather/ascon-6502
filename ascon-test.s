@@ -61,7 +61,9 @@ ascon_test_permutation:
 ;
     jsr     ascon_copy_in
     ldy     #0
+    jsr     measure_start
     jsr     ascon_permute
+    jsr     measure_end
 ;
     lda     #<outbuf
     sta     ascon_ptr

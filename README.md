@@ -84,6 +84,16 @@ My emulator doesn't currently emulate that.
 12 rounds of the permutation can be performed in 36545 clock cycles,
 or a nominal time of 36.5ms per permutation call at 1MHz.
 
+To confirm the timings, I ran the code on an instance of
+[Ben Eater's 6502 Breadboard Computer](https://eater.net/6502).
+By toggling the PA7 pin on the 6522 VIA chip and measuring the width of
+the pulse, I was able to confirm that 12 rounds of the permutation
+takes around 36.6ms on a WDC65C02 running at 1MHz.
+
+My oscilloscope was unfortunately not accurate enough to measure the
+pulse down to the microsecond, but it indicates that my 6502 emulator
+is producing timings that are pretty close to real hardware.
+
 Recent versions of the 6502 can run up to 14MHz.  If you were to
 overclock your Apple II or Commodore 64 you could potentially
 get up to around 3000 bytes per second when hashing and 6000 bytes per
