@@ -22,22 +22,8 @@
 ; Set the origin unless we are outputting to the relocatable ".o65" format.
 ;
         .ifndef O65
-            .org    $4000
+            .org    $2000
         .endif
-
-;
-; Subroutines in ROM for printing characters.  The defaults are entry
-; points for Apple II and compatible ROM's.  Modify as necessary
-; for other platforms.
-;
-CROUT       .equ    $fd8e       ; Output a CRLF, or 0 to use COUT.
-COUT        .equ    $fded       ; Output a single character in A.
-HIGH_ASCII  .equ    $80         ; $80 to convert to high ASCII on output.
-
-;
-; Output data is placed here for inspection.
-;
-outbuf      .equ    $300
 
 ;
 ; Main entry point to the test harness.
@@ -473,25 +459,9 @@ ascon_128_ciphertext_output_end:
 print_string:
     lda     messages,x
     beq     print_done
-    cmp     #$0d
-    bne     print_char
-    .if (CROUT <> 0)
-    jsr     CROUT
-    .else
-    lda     #($0d + HIGH_ASCII)
-    jsr     COUT
-    lda     #($0a + HIGH_ASCII)
-    jsr     COUT
-    .endif
+    jsr     print_char
     inx
-    jmp     print_string
-print_char:
-    .if (HIGH_ASCII <> 0)
-    ora     #HIGH_ASCII
-    .endif
-    jsr     COUT
-    inx
-    jmp     print_string
+    bne     print_string
 print_done:
     rts
 
@@ -502,22 +472,14 @@ print_done:
 print_hex:
     ldy     #0
 print_next_byte:
-    lda     #($20 + HIGH_ASCII)
-    jsr     COUT
+    lda     #$20
+    jsr     print_char
     lda     (ascon_ptr),y
     jsr     print_hex_byte
     iny
     dex
     bne     print_next_byte
-    .if (CROUT <> 0)
-    jsr     CROUT
-    .else
-    lda     #($0d + HIGH_ASCII)
-    jsr     COUT
-    lda     #($0a + HIGH_ASCII)
-    jsr     COUT
-    .endif
-    rts
+    jmp     print_crlf
 print_hex_byte:
     pha
     lsr
@@ -533,34 +495,34 @@ print_hex_nibble:
     clc
     adc     #7
 print_hex_1:
-    adc     #($30 + HIGH_ASCII)
-    jmp     COUT
+    adc     #$30
+    jmp     print_char
 
 messages:
 msg_12_rounds:
-    .db     $0d
+    .db     $0a
     .asc    "12 permutation rounds:"
-    .db     $0d, 0
+    .db     $0a, 0
 msg_8_rounds:
-    .db     $0d
+    .db     $0a
     .asc    "8 permutation rounds:"
-    .db     $0d, 0
+    .db     $0a, 0
 msg_hash:
-    .db     $0d
+    .db     $0a
     .asc    "ASCON-HASH:"
-    .db     $0d, 0
+    .db     $0a, 0
 msg_xof:
-    .db     $0d
+    .db     $0a
     .asc    "ASCON-XOF:"
-    .db     $0d, 0
+    .db     $0a, 0
 msg_encrypt_128:
-    .db     $0d
+    .db     $0a
     .asc    "ASCON-128 encryption:"
-    .db     $0d, 0
+    .db     $0a, 0
 msg_decrypt_128:
-    .db     $0d
+    .db     $0a
     .asc    "ASCON-128 decryption:"
-    .db     $0d, 0
+    .db     $0a, 0
 msg_input:
     .asc    "input    ="
     .db     0
@@ -590,3 +552,8 @@ msg_ct:
 ; Include the implementation of ASCON.
 ;
     .include "ascon-6502.s"
+
+;
+; Include the platform-specific routines.
+;
+    .include "platform/appleii.s"
