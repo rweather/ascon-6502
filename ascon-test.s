@@ -19,16 +19,21 @@
 ; DEALINGS IN THE SOFTWARE.
 
 ;
-; Set the origin unless we are outputting to the relocatable ".o65" format.
+; Set the origin for the code.
 ;
+    .ifdef EATER6502
+        .org    $8000
+    .else
         .ifndef O65
             .org    $2000
         .endif
+    .endif
 
 ;
 ; Main entry point to the test harness.
 ;
 main:
+    jsr     platform_init
     jsr     ascon_test_permutation
     jsr     ascon_test_hash
     jsr     ascon_test_xof
@@ -556,4 +561,9 @@ msg_ct:
 ;
 ; Include the platform-specific routines.
 ;
+  .ifdef APPLEII
     .include "platform/appleii.s"
+  .endif
+  .ifdef EATER6502
+    .include "platform/eater6502.s"
+  .endif
