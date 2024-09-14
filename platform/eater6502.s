@@ -67,6 +67,12 @@ platform_init:
     rts
 
 ;
+; Pause after a test before running the next one.
+;
+platform_pause:
+    rts
+
+;
 ; Print an ASCII character to the system console.
 ;
 print_char:

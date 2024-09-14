@@ -35,9 +35,13 @@
 main:
     jsr     platform_init
     jsr     ascon_test_permutation
+    jsr     platform_pause
     jsr     ascon_test_hash
+    jsr     platform_pause
     jsr     ascon_test_xof
+    jsr     platform_pause
     jsr     ascon_test_encryption
+    jsr     platform_pause
     jsr     ascon_test_decryption
     rts
 
@@ -86,6 +90,7 @@ ascon_test_permutation:
     jsr     print_hex
 
     ; Test 8 rounds of the permutation.
+    jsr     platform_pause
     ldx     #msg_8_rounds-messages
     jsr     print_string
 ;
@@ -554,6 +559,11 @@ msg_pt:
 msg_ct:
     .asc    "ct       ="
     .db     0
+  .ifdef APPLEII
+msg_pause:
+    .asc    "Press any key to continue ... "
+    .db     0
+  .endif
 
 ;
 ; Include the implementation of ASCON.

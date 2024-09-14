@@ -21,13 +21,9 @@
 ;
 ; Subroutines in the Apple II ROM for printing characters.
 ;
+RDKEY       .equ    $fd0c       ; Read a key.
 CROUT       .equ    $fd8e       ; Output a CRLF.
 COUT        .equ    $fded       ; Output a single character in A.
-
-;
-; Output data is placed here for inspection.
-;
-outbuf      .equ    $300
 
 ;
 ; Initialize the platform routines.
@@ -36,11 +32,25 @@ platform_init:
     rts
 
 ;
+; Pause after a test before running the next one.
+;
+platform_pause:
+    jsr     CROUT
+    ldx     #msg_pause-messages
+    jsr     print_string
+    jsr     RDKEY
+    jmp     CROUT
+
+;
 ; Print an ASCII character to the system console.
 ;
 print_char:
     cmp     #$0a                ; Is this '\n'?
     beq     print_crlf
+    cmp     #$60                ; Older Apple II's don't have lower case.
+    bcc     print_char_2
+    sbc     #$20                ; Convert to upper case.
+print_char_2:
     ora     #$80                ; Apple II uses "high ascii".
     jmp     COUT
 print_crlf:
@@ -58,3 +68,9 @@ measure_start:
 ;
 measure_end:
     rts
+
+;
+; Output data is placed here for inspection.
+;
+outbuf:
+    .ds     256
